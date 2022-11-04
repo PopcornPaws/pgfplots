@@ -42,59 +42,46 @@ use crate::axis::{
 
 use crate::axis::Axis;
 use std::fmt;
-
-#[cfg(feature = "inclusive")]
 use std::io::Write;
+use thiserror::Error;
+
+const OUT_NAME: &str = "figure";
 
 /// Axis environment inside a [`Picture`].
 pub mod axis;
 
 /// The error type returned when showing a figure fails.
-#[cfg(feature = "inclusive")]
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Error)]
 pub enum ShowPdfError {
-    /// Compilation of LaTeX source failed internally
-    Compile,
-    /// Creating or writing to temporary file failed
-    Write,
-    /// Persisting the temporary file failed
-    Persist,
-    /// Opening the file failed
-    Open,
+    /// Compilation of LaTeX source failed using Tectonic.
+    #[cfg(feature = "inclusive")]
+    #[error("failed to compile LaTeX source: {0}")]
+    Tectonic(#[from] tectonic::Error),
+    /// Encountered some kind of Io error.
+    #[error("io task failed: {0}")]
+    IoError(#[from] std::io::Error),
+    /// Failed to open file.
+    #[error("failed to open file: {0}")]
+    Open(#[from] opener::OpenError),
 }
-#[cfg(feature = "inclusive")]
-impl fmt::Display for ShowPdfError {
+
+pub enum Compiler {
+    #[cfg(feature = "inclusive")]
+    Tectonic,
+    Installed(Engine),
+}
+
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub enum Engine {
+    PdfLatex,
+}
+
+impl fmt::Display for Engine {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            ShowPdfError::Compile => write!(f, "tectonic compilation error"),
-            ShowPdfError::Write => write!(f, "creating or writing to temporary file failed"),
-            ShowPdfError::Persist => write!(f, "persisting temporary file failed"),
-            ShowPdfError::Open => write!(f, "opening file error"),
+        match self {
+            Self::PdfLatex => write!(f, "pdflatex"),
         }
-    }
-}
-#[cfg(feature = "inclusive")]
-impl From<tectonic::errors::Error> for ShowPdfError {
-    fn from(_: tectonic::errors::Error) -> Self {
-        Self::Compile
-    }
-}
-#[cfg(feature = "inclusive")]
-impl From<std::io::Error> for ShowPdfError {
-    fn from(_: std::io::Error) -> Self {
-        Self::Write
-    }
-}
-#[cfg(feature = "inclusive")]
-impl From<tempfile::PersistError> for ShowPdfError {
-    fn from(_: tempfile::PersistError) -> Self {
-        Self::Persist
-    }
-}
-#[cfg(feature = "inclusive")]
-impl From<opener::OpenError> for ShowPdfError {
-    fn from(_: opener::OpenError) -> Self {
-        Self::Open
     }
 }
 
@@ -220,11 +207,7 @@ impl Picture {
     /// picture.standalone_string());
     /// ```
     pub fn standalone_string(&self) -> String {
-        String::from("\\documentclass{standalone}\n")
-            + "\\usepackage{pgfplots}\n"
-            + "\\begin{document}\n"
-            + &self.to_string()
-            + "\n\\end{document}"
+        format!("\\documentclass{{standalone}}\n\\usepackage{{pgfplots}}\n\\begin{{document}}\n{}\n\\end{{document}}", self)
     }
     /// Show the picture as a standalone PDF. This will create a file in the
     /// location returned by [`std::env::temp_dir()`] and open it with the
@@ -241,15 +224,74 @@ impl Picture {
     #[cfg(feature = "inclusive")]
     pub fn show(&self) -> Result<(), ShowPdfError> {
         let pdf_data = tectonic::latex_to_pdf(self.standalone_string())?;
+        let mut path = temp_output_dir()?;
+        path.push(OUT_NAME);
+        path.set_extension("pdf");
 
-        let mut file = tempfile::NamedTempFile::new()?;
+        let mut file = std::fs::File::create(&path)?;
         file.write_all(&pdf_data)?;
-        let (_file, path) = file.keep()?;
 
         opener::open(&path)?;
 
         Ok(())
     }
+
+    pub fn show_with(&self, builder: &Compiler) -> Result<(), ShowPdfError> {
+        match builder {
+            #[cfg(feature = "inclusive")]
+            Compiler::Tectonic => self.show(),
+            Compiler::Installed(engine) => {
+                // generate output dir in /tmp (on linux)
+                let out_dir = temp_output_dir()?;
+                // generate the .tex source file
+                let mut source_file = out_dir.clone();
+                source_file.push(OUT_NAME);
+                source_file.set_extension("tex");
+                // write the code to the source file (otherwise args can get too large)
+                let mut file = std::fs::File::create(&source_file)?;
+                file.write_all(self.standalone_string().as_bytes())?;
+                // compile the figure with the pre-installed latex compiler
+                compile_figure_with(
+                    &engine.to_string(),
+                    source_file.file_name().unwrap(),
+                    &out_dir,
+                )?;
+                // open the resulting .pdf
+                let mut out_file = out_dir;
+                out_file.push(OUT_NAME);
+                out_file.set_extension("pdf");
+                opener::open(out_file)?;
+                Ok(())
+            }
+        }
+    }
+}
+
+fn temp_output_dir() -> std::io::Result<std::path::PathBuf> {
+    let mut path = std::env::temp_dir();
+    path.push("output");
+    if path.exists() {
+        std::fs::remove_dir_all(&path)?;
+    }
+    std::fs::create_dir(&path)?;
+    Ok(path)
+}
+
+fn compile_figure_with(
+    engine: &str,
+    source: &std::ffi::OsStr,
+    out_dir: &std::path::Path,
+) -> Result<(), ShowPdfError> {
+    std::process::Command::new(engine)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .arg("-interaction=batchmode")
+        .arg("-halt-on-error")
+        .arg("-jobname=figure")
+        .arg(source)
+        .current_dir(out_dir)
+        .status()?;
+    Ok(())
 }
 
 #[cfg(test)]

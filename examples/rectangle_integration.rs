@@ -3,6 +3,11 @@ use pgfplots::axis::{
     Axis, AxisKey,
 };
 
+use pgfplots::Compiler;
+#[cfg(not(feature = "inclusive"))]
+use pgfplots::Engine;
+use pgfplots::Picture;
+
 fn main() {
     // Set line
     let mut line = Plot2D::new();
@@ -36,6 +41,13 @@ fn main() {
     axis.add_key(AxisKey::Custom(String::from("xlabel near ticks")));
     axis.add_key(AxisKey::Custom(String::from("ylabel near ticks")));
 
+    let mut picture = Picture::new();
+    picture.axes.push(axis);
+
     #[cfg(feature = "inclusive")]
-    axis.show().unwrap();
+    picture.show_with(&Compiler::Tectonic).unwrap();
+    #[cfg(not(feature = "inclusive"))]
+    picture
+        .show_with(&Compiler::Installed(Engine::PdfLatex))
+        .unwrap();
 }

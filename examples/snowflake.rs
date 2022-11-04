@@ -3,6 +3,11 @@ use pgfplots::axis::{
     Axis, AxisKey,
 };
 
+use pgfplots::Compiler;
+#[cfg(not(feature = "inclusive"))]
+use pgfplots::Engine;
+use pgfplots::Picture;
+
 fn main() {
     let mut vertices = {
         let mut current: Vec<(f64, f64)> = vec![
@@ -26,8 +31,15 @@ fn main() {
     axis.plots.push(plot);
     axis.add_key(AxisKey::Custom(String::from("hide axis")));
 
+    let mut picture = Picture::new();
+    picture.axes.push(axis);
+
     #[cfg(feature = "inclusive")]
-    axis.show().unwrap();
+    picture.show_with(&Compiler::Tectonic).unwrap();
+    #[cfg(not(feature = "inclusive"))]
+    picture
+        .show_with(&Compiler::Installed(Engine::PdfLatex))
+        .unwrap();
 }
 
 // Stolen from plotters crate example

@@ -2,6 +2,12 @@ use pgfplots::axis::{
     plot::{ErrorCharacter, ErrorDirection, Plot2D, PlotKey, Type2D},
     Axis, AxisKey,
 };
+
+use pgfplots::Compiler;
+#[cfg(not(feature = "inclusive"))]
+use pgfplots::Engine;
+use pgfplots::Picture;
+
 use std::f64::consts::PI;
 
 fn main() {
@@ -47,6 +53,13 @@ fn main() {
     axis.add_key(AxisKey::Custom(String::from("legend entries={fit,data}")));
     axis.add_key(AxisKey::Custom(String::from("legend pos=north west")));
 
+    let mut picture = Picture::new();
+    picture.axes.push(axis);
+
     #[cfg(feature = "inclusive")]
-    axis.show().unwrap();
+    picture.show_with(&Compiler::Tectonic).unwrap();
+    #[cfg(not(feature = "inclusive"))]
+    picture
+        .show_with(&Compiler::Installed(Engine::PdfLatex))
+        .unwrap();
 }
