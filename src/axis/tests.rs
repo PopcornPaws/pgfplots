@@ -25,7 +25,6 @@ fn axis_keys_tested() {
         AxisKey::XLabel(_) => (),
         AxisKey::YLabel(_) => (),
     }
-    assert!(true);
 }
 
 #[test]
@@ -157,22 +156,6 @@ fn axis_add_key() {
     assert_eq!(axis.keys[1].to_string(), String::from("random"));
     assert_eq!(axis.keys[2].to_string(), String::from("ymode=log"));
     assert_eq!(axis.keys[3].to_string(), String::from("xmode=log"));
-}
-
-#[test]
-fn axis_standalone_string() {
-    let axis = Axis::new();
-    assert_eq!(
-        r#"\documentclass{standalone}
-\usepackage{pgfplots}
-\begin{document}
-\begin{tikzpicture}
-\begin{axis}
-\end{axis}
-\end{tikzpicture}
-\end{document}"#,
-        axis.standalone_string()
-    );
 }
 
 #[test]
